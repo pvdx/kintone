@@ -98,14 +98,8 @@ def build_js_from_excel(xlsx_path: Path) -> str:
     return "".join(lines)
 
 def main():
-    import argparse
-    p = argparse.ArgumentParser()
-    p.add_argument('xlsx', help='Path to Excel file with columns: flow, status, role, past, future')
-    p.add_argument('-o', '--out', default='flow_config.js', help='Output JS file path')
-    args = p.parse_args()
-
     js = build_js_from_excel(Path(args.xlsx))
-    Path(args.out).write_text(js, encoding='utf-8')
+    Path('flow_config.js').write_text(js, encoding='utf-8')
     print(f"Wrote {args.out}")
 
 if __name__ == '__main__':
