@@ -1,98 +1,121 @@
 ﻿(function () {
   'use strict';
 
-// Auto-generated from Excel. Do not edit manually.
-const FLOW_DATA = {
-  flows: {
-    'main': [
-      { status: '申込', status: '申込', role: '案件管理', past: ['戻る'], future: ['発注情報入力', '申込→発注情報入力'] },
-      { status: '発注情報入力', role: 'OP', past: ['申込へ戻る', '戻る'], future: ['発注内容確認', '入力→確認'] },
-      { status: '発注内容確認（長いテスト）', role: 'SV', past: ['入力へ戻る', '戻る'], future: ['発注', '確認→発注'] },
-      { status: '発注', role: '役職者', past: ['確認へ戻る', '戻る'], future: ['発注後', '発注→発注後'] },
-      { status: '発注後', role: '', past: ['発注へ戻る', '戻る'], future: [] },
-    ],
-    'side': [
-      { status: '脇道', role: '', past: ['戻る'], future: [] },
-      { status: '完了', role: '', past: ['戻る'], future: [] },
-    ],
-  },
-};
+  // Auto-generated from Excel. Do not edit manually.
+  const FLOW_DATA = {
+    flows: {
+      'main': [
+        { status: '申込', role: '案件管理', past: [], future: ['発注情報入力', '申込→発注情報入力'] },
+        { status: '発注情報入力', role: 'OP', past: [], future: ['発注内容確認', '入力→確認'] },
+        { status: '発注内容確認（長いテスト）', role: 'SV', past: ['入力へ戻る', '戻る'], future: ['発注', '確認→発注'] },
+        { status: '発注', role: '役職者', past: ['確認へ戻る', '戻る'], future: ['発注後', '発注→発注後'] },
+        { status: '発注後', role: '', past: ['発注へ戻る', '戻る'], future: [] },
+      ],
+      'side': [
+        { status: '脇道', role: '', past: ['戻る'], future: [] },
+        { status: '完了', role: '', past: ['戻る'], future: [] },
+      ],
+    },
+  };
 
-// 現在のステータスから、main 以外を優先してフロー判定 → 無ければ main
-function getFlowByStatus(status){
-  if (!status) return 'main';
-  const keys = Object.keys(FLOW_DATA.flows);
-  // 1st pass: non-main
-  for (const k of keys){
-    if (k === 'main') continue;
-    const arr = FLOW_DATA.flows[k] || [];
-    if (arr.some(x => x.status === status)) return k;
+  // 現在のフロー（配列）を保持
+  let _current_flow = [];
+
+  /**
+   * 現在のステータスから基底フロー名を決め、その配列を返す。
+   * ここで record の条件に応じて配列を自由に加工できる（並び替え・挿入・削除など）。
+   * 戻り値と同じ配列を _current_flow に保存し、以後使い回す。
+   */
+  function getFlowByStatus(record) {
+    const status = record?.ステータス?.value;
+
+    // 1) 基底フロー名の決定（main 以外を優先）
+    let baseFlowName = 'main';
+    if (status) {
+      const keys = Object.keys(FLOW_DATA.flows);
+      for (const k of keys) {
+        if (k === 'main') continue;
+        const arr = FLOW_DATA.flows[k] || [];
+        if (arr.some(x => x.status === status)) { baseFlowName = k; break; }
+      }
+    }
+
+    // 2) 基底フロー配列をコピー（元データ破壊を避ける）
+    let flow = (FLOW_DATA.flows[baseFlowName] || []).slice();
+
+    // 特定条件で最後の「発注後」を隠す:
+    // if (record?.特別フラグ?.value === 'はい') {
+    //   flow = flow.filter(step => step.status !== '発注後');
+    // }
+    // 動的に中間ステップを差し込む:
+    // if (record?.区分?.value === 'A') {
+    //   const idx = flow.findIndex(s => s.status === '発注');
+    //   if (idx >= 0) flow.splice(idx, 0, { status:'社内承認', role:'役職者', past:['戻る'], future:['発注'] });
+    // }
+
+    _current_flow = flow;
+    return _current_flow;
   }
-  // fallback
-  return 'main';
-}
 
-function getStepEntry(flow, status){
-  const arr = FLOW_DATA.flows[flow] || [];
-  return arr.find(x => x.status === status) || null;
-}
+  function getStepEntry(flowArr, status) {
+    const arr = flowArr || _current_flow || [];
+    return arr.find(x => x.status === status) || null;
+  }
 
-function selectStepList(record){
-  const status = record?.ステータス?.value;
-  const flow = getFlowByStatus(status);
-  return (FLOW_DATA.flows[flow] || []).map(x => x.status);
-}
+  function selectStepList(record) {
+    const flowArr = getFlowByStatus(record); // ← ここで _current_flow を更新
+    return (flowArr || []).map(x => x.status);
+  }
 
-function selectDept(record, step){
-  const status = record?.ステータス?.value;
-  const flow = getFlowByStatus(status);
-  const entry = getStepEntry(flow, step);
-  return entry?.role || null;
-}
+  function selectDept(record, step) {
+    // _current_flow が未設定の可能性もあるため、念のため更新
+    if (!_current_flow || _current_flow.length === 0) getFlowByStatus(record);
+    const entry = getStepEntry(_current_flow, step);
+    return entry?.role || null;
+  }
 
-// current→next の向きで past/future を返す（配列1件なら文字列で返す互換仕様）
-function selectAction(current, next){
-  if (!current || !next) return null;
-  const flow = getFlowByStatus(current);
-  const arr = FLOW_DATA.flows[flow] || [];
-  const curIdx = arr.findIndex(x => x.status === current);
-  const nextIdx = arr.findIndex(x => x.status === next);
-  if (curIdx === -1 || nextIdx === -1) return null;
+  // current→next の向きで past/future を返す（配列1件なら文字列で返す互換仕様）
+  function selectAction(current, next) {
+    if (!current || !next) return null;
+    const arr = _current_flow || [];
+    const curIdx = arr.findIndex(x => x.status === current);
+    const nextIdx = arr.findIndex(x => x.status === next);
+    if (curIdx === -1 || nextIdx === -1) return null;
 
-  const dir = Math.sign(nextIdx - curIdx); // +: future, -: past
-  const entry = arr[curIdx];
-  const labels = dir > 0 ? (entry.future || []) : dir < 0 ? (entry.past || []) : [];
-  if (!labels || labels.length === 0) return null;
-  return labels.length === 1 ? labels[0] : labels;
-}
+    const dir = Math.sign(nextIdx - curIdx); // +: future, -: past
+    const entry = arr[curIdx];
+    const labels = dir > 0 ? (entry.future || []) : dir < 0 ? (entry.past || []) : [];
+    if (!labels || labels.length === 0) return null;
+    return labels.length === 1 ? labels[0] : labels;
+  }
 
 
   // ===== 移行フラグ / バナー文言 =====
-  let FEATURE_HIDE_FLOW_ACTIONS       = false; // trueで「進む/戻る」ボタンを非表示
+  let FEATURE_HIDE_FLOW_ACTIONS = false; // trueで「進む/戻る」ボタンを非表示
   const FEATURE_SHOW_MIGRATION_BANNER = false;  // trueでバナーを表示
-  const BANNER_LOCAL_STORAGE_KEY      = 'arrow-steps-banner-v1';
+  const BANNER_LOCAL_STORAGE_KEY = 'arrow-steps-banner-v1';
   const BANNER_TEXT = '【お知らせ】↓のフロー図から直接「進む」「戻る」を実行できるよう操作方法を改善しました。';
-    //const BANNER_TEXT = '【お知らせ】↓のフロー図から直接「進む」「戻る」を実行できるよう改善しました。ボタンの押し間違い防止のため、↑のボタンは将来的に廃止する予定です。';
+  //const BANNER_TEXT = '【お知らせ】↓のフロー図から直接「進む」「戻る」を実行できるよう改善しました。ボタンの押し間違い防止のため、↑のボタンは将来的に廃止する予定です。';
 
-  const STYLE_ID     = 'arrow-steps-style';
+  const STYLE_ID = 'arrow-steps-style';
   const CONTAINER_ID = 'arrow-steps-container';
-  const BANNER_ID    = 'arrow-migration-banner';
+  const BANNER_ID = 'arrow-migration-banner';
   const MAX_VISIBLE_STEPS = 4;
 
   [
-    'arrow-steps-green-theme','arrow-steps-pad-override','arrow-steps-badge-y-override',
-    'arrow-steps-badge-left-override','arrow-steps-badge-center-override','arrow-steps-badge-shadow-override',
-    'arrow-steps-badge-color-override','arrow-steps-badge-border-white','arrow-steps-badge-bold-and-up',
-    'arrow-steps-future1-text-white','arrow-steps-future1-text-default','arrow-steps-current-arrow-white',
-    'arrow-steps-remove-shadows','arrow-steps-restore-shadows','arrow-steps-current-glow',
-    'arrow-steps-center-badge-fix','arrow-steps-badge-y-offset','arrow-steps-badge-center-lock','arrow-steps-no-blur',
+    'arrow-steps-green-theme', 'arrow-steps-pad-override', 'arrow-steps-badge-y-override',
+    'arrow-steps-badge-left-override', 'arrow-steps-badge-center-override', 'arrow-steps-badge-shadow-override',
+    'arrow-steps-badge-color-override', 'arrow-steps-badge-border-white', 'arrow-steps-badge-bold-and-up',
+    'arrow-steps-future1-text-white', 'arrow-steps-future1-text-default', 'arrow-steps-current-arrow-white',
+    'arrow-steps-remove-shadows', 'arrow-steps-restore-shadows', 'arrow-steps-current-glow',
+    'arrow-steps-center-badge-fix', 'arrow-steps-badge-y-offset', 'arrow-steps-badge-center-lock', 'arrow-steps-no-blur',
     'arrow-hint-style'
   ].forEach(id => document.getElementById(id)?.remove());
 
   const DEPT_COLORS = {
-    'OP':      { bg: '#1976D2', fg: '#FFFFFF' },
-    'SV':      { bg: '#D32F2F', fg: '#FFFFFF' },
-    '役職者':   { bg: '#000000', fg: '#FFFFFF' },
+    'OP': { bg: '#1976D2', fg: '#FFFFFF' },
+    'SV': { bg: '#D32F2F', fg: '#FFFFFF' },
+    '役職者': { bg: '#000000', fg: '#FFFFFF' },
     '案件管理': { bg: '#00897B', fg: '#FFFFFF' },
     '文書管理': { bg: '#000000', fg: '#FFFFFF' }
   };
@@ -212,7 +235,7 @@ function selectAction(current, next){
 
       /* クリック可/不可 */
       .arrow-wrap.clickable .arrow-step{ cursor:pointer; }
-      .arrow-wrap.clickable .arrow-step:hover{ filter: brightness(1.03); }
+      .arrow-wrap.clickable .arrow-step:hover{ filter: brightness(1.03); color:red;}
       .arrow-wrap.clickable .arrow-step:active{ transform: translateY(1px); }
       .arrow-wrap.disabled  .arrow-step{ cursor:not-allowed; opacity:1; }
 
@@ -321,7 +344,7 @@ function selectAction(current, next){
   function closeAnyOpenMenus() {
     const has = [...document.querySelectorAll('.gaia-argoui-menu,[role="menu"],.gaia-app-statusbar-menu')].some(visible);
     if (!has) return;
-    document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', code:'Escape', bubbles:true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
     setTimeout(() => { document.body.click(); }, 10);
   }
 
@@ -345,32 +368,52 @@ function selectAction(current, next){
     return false;
   }
 
-  // ---- ネイティブの「進む/戻る」ボタンを上から消す（寄り道だけ残す） ----
+  // ---- ネイティブの「進む/戻る」ボタンを上から消す（各方向で1つだけ） ----
   function hideNativeFlowActions(currentStatus, stepList, currentIndex) {
-    if (!FEATURE_HIDE_FLOW_ACTIONS) return; // ← 当面はオフ
+    if (!FEATURE_HIDE_FLOW_ACTIONS) return; // ← オフなら何もしない
 
-    const toHide = new Set();
+    // ユーティリティ：配列の中から「最初に見つかったボタン」だけ隠す
+    function hideOne(labels) {
+      for (const raw of labels) {
+        if (!raw) continue;
+        const key = normalize(raw);
+
+        // 既に隠しているなら完了扱い（ただしDOMから消えていたらキャッシュ掃除して続行）
+        const cached = HIDDEN_DIRECT_ACTIONS.get(key);
+        if (cached) {
+          if (document.body.contains(cached)) return true;
+          HIDDEN_DIRECT_ACTIONS.delete(key);
+        }
+
+        const el = findDirectActionElementByLabel(raw);
+        if (el) {
+          const host = el.closest('.gaia-app-statusbar-action') || el;
+          host.setAttribute('data-hidden-by-arrows', '1');
+          host.style.display = 'none';
+          HIDDEN_DIRECT_ACTIONS.set(key, host);
+          return true; // ← ここで打ち切り（先頭のみ非表示）
+        }
+      }
+      return false;
+    }
+
     const nextStep = stepList[currentIndex + 1];
     const prevStep = stepList[currentIndex - 1];
-    toLabelArray(nextStep ? selectAction(currentStatus, nextStep) : null).forEach(l => l && toHide.add(normalize(l)));
-    toLabelArray(prevStep ? selectAction(currentStatus, prevStep) : null).forEach(l => l && toHide.add(normalize(l)));
 
-    for (const label of toHide) {
-      if (HIDDEN_DIRECT_ACTIONS.has(label)) continue;
-      const el = findDirectActionElementByLabel(label);
-      if (el) {
-        const host = el.closest('.gaia-app-statusbar-action') || el;
-        host.setAttribute('data-hidden-by-arrows', '1');
-        host.style.display = 'none';
-        HIDDEN_DIRECT_ACTIONS.set(label, host);
-      }
-    }
+    // future 側：配列の先頭から1つだけ非表示（見つからなければ何もしない）
+    const futureLabels = toLabelArray(nextStep ? selectAction(currentStatus, nextStep) : null);
+    hideOne(futureLabels);
+
+    // past 側：配列の先頭から1つだけ非表示（見つからなければ何もしない）
+    const pastLabels = toLabelArray(prevStep ? selectAction(currentStatus, prevStep) : null);
+    hideOne(pastLabels);
 
     // DOMから消えた古い参照を掃除
     for (const [key, el] of HIDDEN_DIRECT_ACTIONS) {
       if (!document.body.contains(el)) HIDDEN_DIRECT_ACTIONS.delete(key);
     }
   }
+
 
   // ---- 実行（process.proceed発火） ----
   async function proceedViaUI(labels) {
@@ -436,7 +479,7 @@ function selectAction(current, next){
 
   async function fetchLatestRecord() {
     const app = kintone.app.getId();
-    const id  = kintone.app.record.getId();
+    const id = kintone.app.record.getId();
     const res = await kintone.api(kintone.api.url('/k/v1/record.json', true), 'GET', { app, id });
     return res.record;
   }
@@ -547,7 +590,7 @@ function selectAction(current, next){
         const badge = document.createElement('div');
         badge.className = 'role-badge';
         const palette = DEPT_COLORS[dept];
-        if (palette){ badge.style.background = palette.bg; badge.style.color = palette.fg; }
+        if (palette) { badge.style.background = palette.bg; badge.style.color = palette.fg; }
         badge.style.borderColor = '#FFFFFF';
         const text = document.createElement('span');
         text.textContent = dept;
@@ -561,12 +604,12 @@ function selectAction(current, next){
       const total = end - start;
       const order = direction >= 0 ? visualIdx : (total - 1 - visualIdx);
       wrap.style.setProperty('--stagger', `${order * 40}ms`);
-      if (direction > 0)      wrap.classList.add('anim-enter-right');
+      if (direction > 0) wrap.classList.add('anim-enter-right');
       else if (direction < 0) wrap.classList.add('anim-enter-left');
-      else                    wrap.classList.add('anim-fade-in');
+      else wrap.classList.add('anim-fade-in');
 
       wrap.addEventListener('animationend', () => {
-        wrap.classList.remove('anim-enter-right','anim-enter-left','anim-fade-in','animating');
+        wrap.classList.remove('anim-enter-right', 'anim-enter-left', 'anim-fade-in', 'animating');
         wrap.style.removeProperty('--stagger');
         wrap.style.transform = 'none';
         arrow.style.transform = 'none';
@@ -586,7 +629,7 @@ function selectAction(current, next){
             if (available) {
               wrap.classList.remove('disabled');
               wrap.classList.add('clickable');
-              // ★ past -> 「戻す」 / future -> 「進める」
+              // past -> 「戻す」 / future -> 「進める」
               arrow.title = wrap.classList.contains('past') ? '戻す' : '進める';
               wrap.addEventListener('click', () => changeStatus(record, currentStatus, targetStep));
             } else {
@@ -602,7 +645,7 @@ function selectAction(current, next){
       container.appendChild(wrap);
     }
 
-    // ★ フロー図は「バナーの直後」に挿入する（= バナーを上に表示）
+    // フロー図は「バナーの直後」に挿入
     const bannerEl = document.getElementById(BANNER_ID);
     if (bannerEl && parent.contains(bannerEl)) {
       parent.insertBefore(container, bannerEl.nextSibling);
@@ -627,12 +670,12 @@ function selectAction(current, next){
   // （任意）コンソールから即時切替したい場合：
   // ArrowSteps.setHideFlowActions(true/false) で切替→再描画します。
   window.ArrowSteps = {
-    async setHideFlowActions(on){
+    async setHideFlowActions(on) {
       FEATURE_HIDE_FLOW_ACTIONS = !!on;
       const rec = await (async () => {
         try {
           const app = kintone.app.getId();
-          const id  = kintone.app.record.getId();
+          const id = kintone.app.record.getId();
           const res = await kintone.api(kintone.api.url('/k/v1/record.json', true), 'GET', { app, id });
           return res.record;
         } catch { return null; }
