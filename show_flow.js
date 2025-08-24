@@ -69,7 +69,7 @@ function selectAction(current, next){
 
   // ===== 移行フラグ / バナー文言 =====
   let FEATURE_HIDE_FLOW_ACTIONS       = false; // trueで「進む/戻る」ボタンを非表示
-  const FEATURE_SHOW_MIGRATION_BANNER = true;  // trueでバナーを表示
+  const FEATURE_SHOW_MIGRATION_BANNER = false;  // trueでバナーを表示
   const BANNER_LOCAL_STORAGE_KEY      = 'arrow-steps-banner-v1';
   const BANNER_TEXT = '【お知らせ】↓のフロー図から直接「進む」「戻る」を実行できるよう操作方法を改善しました。';
     //const BANNER_TEXT = '【お知らせ】↓のフロー図から直接「進む」「戻る」を実行できるよう改善しました。ボタンの押し間違い防止のため、↑のボタンは将来的に廃止する予定です。';
